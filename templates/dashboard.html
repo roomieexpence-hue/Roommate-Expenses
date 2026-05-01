@@ -1,0 +1,578 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – RoomiePay{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ── Page header ──────────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 2.5rem 0 1.75rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2rem;
+  gap: 2rem;
+}
+.page-header-left h1 {
+  font-family: var(--font-head);
+  font-size: 2.2rem; font-weight: 800; letter-spacing: -1px;
+  background: linear-gradient(135deg, var(--ink) 0%, var(--muted) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.page-header-left p { 
+  color: var(--muted); font-size: .95rem; 
+  margin-top: .4rem; font-weight: 500;
+}
+.page-header-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+}
+.page-header-total .total-label {
+  font-size: .8rem; font-weight: 700;
+  color: var(--muted); text-transform: uppercase;
+  letter-spacing: .05em; font-family: var(--font-head);
+  margin-bottom: .5rem;
+}
+.page-header-total .total-value {
+  font-family: var(--font-head);
+  font-size: 1.8rem; font-weight: 800;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+@media (max-width:600px) {
+  .page-header {
+    gap: 1rem;
+  }
+  .page-header-left h1 {
+    font-size: 1.8rem;
+  }
+  .page-header-total .total-value {
+    font-size: 1.4rem;
+  }
+}
+
+/* ── Overview strip / Members Grid ────────────────────────── */
+.overview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1.25rem; 
+  margin-bottom: 2.5rem;
+}
+@media (max-width:900px) { .overview-strip { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); } }
+@media (max-width:600px) { .overview-strip { grid-template-columns: repeat(2, 1fr); } }
+
+/* ── Two-col layout ───────────────────────────────────────── */
+.two-col {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+@media (max-width:860px) { .two-col { grid-template-columns: 1fr; } }
+
+/* ── Add expense modal ────────────────────────────────────── */
+.modal-backdrop {
+  display: none;
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.65);
+  backdrop-filter: blur(8px);
+  align-items: center; justify-content: center;
+  animation: fadeIn .2s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+  background: var(--card);
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  padding: 2.5rem;
+  width: min(520px, 94vw);
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  animation: modalIn .3s cubic-bezier(.34,1.56,.64,1);
+  position: relative;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(.92) translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+.modal-close {
+  position: absolute; top: 1.5rem; right: 1.5rem;
+  background: linear-gradient(135deg, var(--paper) 0%, var(--border) 100%);
+  border: none; border-radius: 12px;
+  width: 38px; height: 38px; cursor: pointer; font-size: 1.1rem;
+  color: var(--muted); display: flex; align-items: center; justify-content: center;
+  transition: all .2s;
+}
+.modal-close:hover { 
+  background: linear-gradient(135deg, var(--border) 0%, var(--muted) 100%);
+  color: #fff;
+  transform: scale(1.1);
+}
+.modal-title {
+  font-family: var(--font-head); font-size: 1.5rem; font-weight: 800;
+  letter-spacing: -.5px; margin-bottom: 1.75rem;
+  background: linear-gradient(135deg, var(--ink) 0%, var(--muted) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Recent tx ────────────────────────────────────────────── */
+.tx-item {
+  display: flex; align-items: center; gap: .85rem;
+  padding: .75rem 0; border-bottom: 1px solid var(--border);
+}
+.tx-item:last-child { border-bottom: none; }
+.tx-avatar {
+  width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-head); font-size: .85rem; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+.tx-info { flex: 1; min-width: 0; }
+.tx-name { font-weight: 600; font-size: .875rem; }
+.tx-date { font-size: .75rem; color: var(--muted); }
+.tx-amt { font-family: var(--font-head); font-weight: 700; font-size: 1rem; }
+
+/* ── Progress bar ─────────────────────────────────────────── */
+.prog-row { margin-bottom: 1rem; }
+.prog-label { 
+  display: flex; justify-content: space-between; 
+  font-size: .8rem; font-weight: 600; margin-bottom: .4rem;
+  font-family: var(--font-head);
+  text-transform: uppercase; letter-spacing: .02em;
+}
+.prog-track { 
+  height: 8px; background: var(--border); 
+  border-radius: 99px; overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.1);
+}
+.prog-fill { 
+  height: 100%; border-radius: 99px; 
+  transition: width .6s cubic-bezier(.34,1.56,.64,1);
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%);
+}
+
+/* ── Table section ────────────────────────────────────────── */
+.table-section { margin-top: 2rem; }
+
+/* ── Fab ──────────────────────────────────────────────────── */
+.fab {
+  display: none;
+  position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 50;
+  width: 60px; height: 60px; border-radius: 50%;
+  background: linear-gradient(135deg, #5c3df4 0%, #6d4dff 100%);
+  color: #fff;
+  border: none; font-size: 1.5rem; cursor: pointer;
+  box-shadow: 0 8px 24px rgba(92,61,244,.5);
+  align-items: center; justify-content: center;
+  transition: all .2s cubic-bezier(.34,1.56,.64,1);
+}
+.fab:hover { 
+  transform: scale(1.1);
+  box-shadow: 0 12px 32px rgba(92,61,244,.65);
+}
+.fab:active { transform: scale(0.95); }
+@media (max-width:600px) { .fab { display: flex; } }
+
+/* ── Anomaly Alert ────────────────────────────────────────── */
+.anomaly-alert {
+  background: rgba(31, 41, 55, 0.4);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 12px;
+  padding: .85rem 1.1rem;
+  display: flex; align-items: center; gap: .6rem;
+  color: #fbbf24;
+  font-weight: 500; font-size: .85rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,.1);
+}
+html:not(.dark-mode) .anomaly-alert {
+  background: rgba(254, 243, 199, 0.4);
+  border-color: rgba(252, 211, 77, 0.3);
+  color: #b45309;
+}
+.anomaly-alert i { font-size: 1rem; opacity: 0.8; }
+.anomaly-alert strong {
+  font-weight: 700; margin-right: .2rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% set member_colors = ['var(--m0)','var(--m1)','var(--m2)','var(--m3)','var(--m4)','var(--m5)','var(--m6)'] %}
+
+<div class="container">
+  <!-- Page header -->
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Dashboard</h1>
+      <p>{{ current_month }} &nbsp;·&nbsp; {{ members|length }} roommate{{ 's' if members|length != 1 }}</p>
+    </div>
+    <div class="page-header-total">
+      <div class="total-label">Overall Expense</div>
+      <div class="total-value">₹{{ '{:,.0f}'.format(totals.overall) }}</div>
+    </div>
+  </div>
+
+  <!-- Anomaly alerts -->
+  {% if anomalies %}
+  <div class="anomaly-alert" style="margin-bottom:1.5rem">
+    <i class="fas fa-exclamation-triangle"></i>
+    <strong>Unusual spending detected:</strong>
+    {{ anomalies | join(', ') }} {{ 'is' if anomalies|length == 1 else 'are' }}
+    spending significantly more than others.
+  </div>
+  {% endif %}
+
+  <!-- Members Overview strip -->
+  <div class="overview-strip">
+    {% for member in members %}
+    {% set color = member_colors[loop.index0 % member_colors|length] %}
+    <div class="stat-card">
+      <div class="accent-bar" style="background:{{ color }}"></div>
+      <div class="label">
+        <span class="mdot" style="background:{{ color }}"></span>{{ member }}
+      </div>
+      <div class="value" style="color:{{ color }}">
+        ₹{{ '{:,.0f}'.format(totals.get(member, 0)) }}
+      </div>
+      <div class="sub">all-time total</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Spending progress bars -->
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="section-header">
+      <span class="section-title">Spending Share</span>
+    </div>
+    {% for member in members %}
+    {% set color = member_colors[loop.index0 % member_colors|length] %}
+    {% set pct = (totals.get(member, 0) / totals.overall * 100) if totals.overall > 0 else 0 %}
+    <div class="prog-row">
+      <div class="prog-label">
+        <span><span class="mdot" style="background:{{ color }}"></span>{{ member }}</span>
+        <span>{{ '{:.1f}'.format(pct) }}%</span>
+      </div>
+      <div class="prog-track">
+        <div class="prog-fill" style="background:{{ color }};width:{{ pct }}%"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Chart + Settlement row -->
+  <div class="two-col">
+    <!-- Bar chart -->
+    <div class="card">
+      <div class="section-header">
+        <span class="section-title">Monthly Spending</span>
+        <div class="toggle-group" id="chartToggle">
+          <button class="active" data-mode="month" onclick="setChartMode('month',this)">This Month</button>
+          <button data-mode="all" onclick="setChartMode('all',this)">All Time</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="spendingChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Settlement -->
+    <div class="card">
+      <div class="section-header">
+        <span class="section-title">Who Owes Whom</span>
+      </div>
+      {% if settlement %}
+        {% for t in settlement %}
+        <div class="settle-item">
+          <i class="fas fa-user-circle" style="color:{{ member_colors[members.index(t.payer) % member_colors|length] }}"></i>
+          <span style="font-weight:600">{{ t.payer }}</span>
+          <span class="settle-arrow"><i class="fas fa-arrow-right"></i></span>
+          <i class="fas fa-user-circle" style="color:{{ member_colors[members.index(t.receiver) % member_colors|length] }}"></i>
+          <span>{{ t.receiver }}</span>
+          <span class="settle-amt">₹{{ '{:,.0f}'.format(t.amount) }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div style="text-align:center; padding:2rem; color:var(--muted)">
+          <i class="fas fa-check-circle fa-2x" style="color:var(--accent3); margin-bottom:.75rem; display:block"></i>
+          All members are square! 🎉
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Recent Transactions + Add form side-by-side -->
+  <div class="two-col">
+    <!-- Recent transactions -->
+    <div class="card">
+      <div class="section-header">
+        <span class="section-title">Recent Transactions</span>
+        <span class="badge" style="background:var(--paper); color:var(--muted); border:1px solid var(--border)">Last 5</span>
+      </div>
+      {% if recent %}
+        {% for tx in recent %}
+        {% set color = member_colors[members.index(tx.member) % member_colors|length] %}
+        <div class="tx-item">
+          <div class="tx-avatar" style="background:{{ color }}">
+            {{ tx.member[0] }}
+          </div>
+          <div class="tx-info">
+            <div class="tx-name">{{ tx.member }}</div>
+            <div class="tx-date">{{ tx.date }}</div>
+          </div>
+          <div class="tx-amt" style="color:{{ color }}">₹{{ '{:,.0f}'.format(tx.amount) }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p style="color:var(--muted);text-align:center;padding:2rem 0">No transactions yet.</p>
+      {% endif %}
+    </div>
+
+    <!-- Quick add (desktop) -->
+    <div class="card">
+      <div class="section-title" style="margin-bottom:1.25rem">Quick Add Expense</div>
+      <form action="{{ url_for('add_expense') }}" method="POST">
+        <div class="form-group">
+          <label>Member</label>
+          <select name="member" required>
+            {% for m in members %}<option>{{ m }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Amount (₹)</label>
+          <input type="number" name="amount" min="1" step="0.01" placeholder="e.g. 250" required/>
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" name="date" value="{{ today }}" max="{{ today }}" required/>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%">
+          <i class="fas fa-plus"></i> Add Expense
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Full data table -->
+  <div class="table-section">
+    <div class="card">
+      <div class="section-header">
+        <span class="section-title">Expense Ledger</span>
+        <div style="display:flex;gap:.5rem">
+          <a href="{{ url_for('export_csv') }}" class="btn btn-outline btn-sm"><i class="fas fa-download"></i> CSV</a>
+          <a href="{{ url_for('export_excel') }}" class="btn btn-outline btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
+        </div>
+      </div>
+      <div class="tbl-wrap" id="ledgerWrap">
+        <table id="ledgerTable">
+          <thead><tr id="ledgerHead"></tr></thead>
+          <tbody id="ledgerBody"></tbody>
+        </table>
+        <p id="ledgerLoading" style="color:var(--muted);text-align:center;padding:2rem">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom padding -->
+  <div style="height:3rem"></div>
+</div>
+
+<!-- Mobile FAB -->
+<button class="fab" onclick="document.getElementById('addModal').classList.add('open')">
+  <i class="fas fa-plus"></i>
+</button>
+{% endblock %}
+
+{% block modals %}
+<!-- Add expense modal (mobile) -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('addModal').classList.remove('open')">
+      <i class="fas fa-times"></i>
+    </button>
+    <div class="modal-title">Add Expense</div>
+    <form action="{{ url_for('add_expense') }}" method="POST">
+      <div class="form-group">
+        <label>Member</label>
+        <select name="member" required>
+          {% for m in members %}<option>{{ m }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Amount (₹)</label>
+        <input type="number" name="amount" min="1" step="0.01" placeholder="e.g. 250" required/>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="{{ today }}" max="{{ today }}" required/>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">
+        <i class="fas fa-plus"></i> Add Expense
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ── Config passed from Jinja ──────────────────────────────── */
+const MEMBERS = {{ members | tojson }};
+const MEMBER_COLORS_CSS = [
+  '#5c3df4','#0ea472','#ff6b35','#e8409a','#f59e0b','#06b6d4','#84cc16'
+];
+const CURRENT_YEAR  = {{ current_year }};
+const CURRENT_MONTH = {{ current_month_num }};
+
+/* ── Chart setup ───────────────────────────────────────────── */
+let chart = null;
+let chartMode = 'month';
+
+async function fetchChartData(mode) {
+  if (mode === 'month') {
+    const res = await fetch(`/api/monthly?year=${CURRENT_YEAR}&month=${CURRENT_MONTH}`);
+    const json = await res.json();
+    return MEMBERS.map(m => json.monthly[m] || 0);
+  } else {
+    const res = await fetch('/api/totals');
+    const json = await res.json();
+    return MEMBERS.map(m => json.totals[m] || 0);
+  }
+}
+
+async function buildChart(mode) {
+  const data    = await fetchChartData(mode);
+  const maxVal  = Math.max(...data);
+  const bgColors = data.map((v, i) =>
+    v === maxVal && maxVal > 0
+      ? MEMBER_COLORS_CSS[i % MEMBER_COLORS_CSS.length]
+      : MEMBER_COLORS_CSS[i % MEMBER_COLORS_CSS.length] + '88'
+  );
+
+  const ctx = document.getElementById('spendingChart').getContext('2d');
+
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: MEMBERS,
+      datasets: [{
+        data,
+        backgroundColor: bgColors,
+        borderColor: bgColors.map(c => c.slice(0,7)),
+        borderWidth: 0,
+        borderRadius: 8,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ₹${ctx.parsed.y.toLocaleString('en-IN')}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: 'Syne', weight: '600', size: 13 } }
+        },
+        y: {
+          grid: { color: '#f0ede6' },
+          ticks: {
+            callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v),
+            font: { size: 11 }
+          }
+        }
+      }
+    }
+  });
+}
+
+function setChartMode(mode, btn) {
+  chartMode = mode;
+  document.querySelectorAll('#chartToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  buildChart(mode);
+}
+
+/* ── Ledger table ─────────────────────────────────────────── */
+async function loadLedger() {
+  try {
+    const res  = await fetch('/api/table');
+    const json = await res.json();
+    const data = json.data || [];
+    const loading = document.getElementById('ledgerLoading');
+
+    if (!data.length) {
+      loading.textContent = 'No data yet.';
+      return;
+    }
+    loading.style.display = 'none';
+
+    // Header
+    const headRow = document.getElementById('ledgerHead');
+    data[0].forEach((cell, i) => {
+      const th = document.createElement('th');
+      th.textContent = cell;
+      if (i > 0) {
+        const color = MEMBER_COLORS_CSS[(i-1) % MEMBER_COLORS_CSS.length];
+        th.style.color = color;
+      }
+      headRow.appendChild(th);
+    });
+
+    // Body
+    const tbody = document.getElementById('ledgerBody');
+    data.slice(1).forEach(row => {
+      const tr = document.createElement('tr');
+      data[0].forEach((_, i) => {
+        const td = document.createElement('td');
+        td.textContent = row[i] || '';
+        if (i > 0 && row[i]) {
+          const total = row[i].split('+').reduce((s,n) => s + parseFloat(n)||0, 0);
+          td.textContent = row[i];
+          td.title = `Total: ₹${total.toLocaleString('en-IN')}`;
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    document.getElementById('ledgerLoading').textContent = 'Could not load data.';
+  }
+}
+
+/* ── Modal: close on backdrop click ──────────────────────── */
+document.getElementById('addModal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+
+/* ── Init ─────────────────────────────────────────────────── */
+buildChart('month');
+loadLedger();
+
+/* ── Auto-dismiss flash after 4s ────────────────────────── */
+setTimeout(() => {
+  document.querySelectorAll('.flash').forEach(el => {
+    el.style.transition = 'opacity .5s';
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 500);
+  });
+}, 4000);
+</script>
+{% endblock %}
