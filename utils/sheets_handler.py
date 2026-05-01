@@ -10,6 +10,7 @@ Sheet layout expected:
 
 import os
 import json
+import base64
 from datetime import datetime
 
 from google.oauth2 import service_account
@@ -31,12 +32,53 @@ HEADER_COLORS = [
 
 
 def _get_service():
-    """Build and return a Sheets API service object."""
+    """Build and return a Sheets API service object.
+    
+    Supports two modes:
+    1. Local: credentials.json file (GOOGLE_CREDENTIALS_FILE env var)
+    2. Vercel: GOOGLE_CREDENTIALS_B64 env var (base64 encoded JSON)
+    """
+    # Check if we're on Vercel (detectable by presence of VERCEL env var)
+    is_vercel = os.getenv("VERCEL") == "1"
+    
+    # Try to load from environment variable first (Vercel production)
+    creds_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
+    if creds_b64:
+        try:
+            creds_json_str = base64.b64decode(creds_b64).decode("utf-8")
+            creds_dict = json.loads(creds_json_str)
+            creds = service_account.Credentials.from_service_account_info(
+                creds_dict, scopes=SCOPES
+            )
+            return build("sheets", "v4", credentials=creds)
+        except Exception as e:
+            raise Exception(f"Failed to load credentials from GOOGLE_CREDENTIALS_B64: {e}")
+    
+    # If we're on Vercel and don't have the env var, fail immediately
+    if is_vercel:
+        raise Exception(
+            "🚨 VERCEL ERROR: GOOGLE_CREDENTIALS_B64 environment variable is NOT SET!\n"
+            "Follow these steps:\n"
+            "1. Go to Vercel Dashboard → Settings → Environment Variables\n"
+            "2. Add GOOGLE_CREDENTIALS_B64 with the base64 encoded credentials\n"
+            "3. Redeploy the project\n"
+            "See VERCEL_SETUP.md for detailed instructions."
+        )
+    
+    # Fall back to local file (development)
     creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-    creds = service_account.Credentials.from_service_account_file(
-        creds_file, scopes=SCOPES
+    if os.path.exists(creds_file):
+        creds = service_account.Credentials.from_service_account_file(
+            creds_file, scopes=SCOPES
+        )
+        return build("sheets", "v4", credentials=creds)
+    
+    raise Exception(
+        f"❌ Google credentials not found!\n"
+        f"   • Local: '{creds_file}' file doesn't exist\n"
+        f"   • Vercel: GOOGLE_CREDENTIALS_B64 env var is not set\n"
+        f"   See VERCEL_SETUP.md for setup instructions."
     )
-    return build("sheets", "v4", credentials=creds)
 
 
 def _sheet_id(service, spreadsheet_id: str) -> int:
