@@ -158,9 +158,6 @@ def dashboard():
     now        = datetime.now()
 
     try:
-        # Sync sheet members with code (recreates any accidentally deleted columns)
-        # sh.sync_sheet_members(sheet_id, members)  # ← Disabled: Causes timeout on Vercel
-        
         # Get ONLY current month totals for dashboard
         totals   = sh.get_monthly_totals(sheet_id, members, now.year, now.month)
         totals["overall"] = sum(totals[m] for m in members if m != "overall")
@@ -171,7 +168,7 @@ def dashboard():
         # Get all monthly summaries from Sheet1 (last 6 months)
         all_monthly_summaries = sh.get_all_monthly_summaries(sheet_id, members, limit=6)
     except Exception as e:
-        app.logger.error(f"Dashboard data error: {e}")
+        app.logger.error(f"Dashboard data error: {e}", exc_info=True)
         totals    = {m: 0 for m in members} | {"overall": 0}
         recent    = []
         anomalies = []
