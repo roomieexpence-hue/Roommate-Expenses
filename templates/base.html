@@ -331,6 +331,21 @@
       background-clip: text;
     }
     .stat-card .sub { font-size: .78rem; color: var(--muted); margin-top: .35rem; }
+    .stat-card .spending-share-label { 
+      font-size: .78rem; color: var(--muted); margin-top: .5rem; font-weight: 500;
+    }
+    @media (max-width:600px) {
+      .stat-card .spending-share-label { font-size: .78rem; }
+    }
+    .stat-badge {
+      position: absolute;
+      top: 1rem;
+      right: 1.5rem;
+      font-family: var(--font-head);
+      font-size: .85rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
 
     /* ── Section header ─────────────────────────────────────── */
     .section-header {
