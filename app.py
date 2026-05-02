@@ -18,6 +18,7 @@ Routes
 
 import os
 import io
+import logging
 from datetime import datetime, date
 from functools import wraps
 
@@ -33,6 +34,12 @@ from utils import calculations as calc
 from utils import email_service as mail
 
 load_dotenv()
+
+# Configure logging to be more verbose
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
@@ -157,21 +164,37 @@ def dashboard():
     today      = date.today().isoformat()
     now        = datetime.now()
 
+    # ⚠️ DIAGNOSTIC: Check environment setup
+    if not sheet_id:
+        app.logger.error("❌ CRITICAL: GOOGLE_SHEET_ID is not set in environment!")
+        flash("❌ ERROR: GOOGLE_SHEET_ID environment variable is missing. Contact admin.")
+        return redirect(url_for("index"))
+
     try:
-        # Sync sheet members with code (recreates any accidentally deleted columns)
-        sh.sync_sheet_members(sheet_id, members)
+        # ⚠️ Skip sync_sheet_members on Vercel (too many API calls, causes timeout)
+        # Only sync when actually adding/removing members
+        # sh.sync_sheet_members(sheet_id, members)
         
         # Get ONLY current month totals for dashboard
+        app.logger.info(f"📊 Fetching monthly totals for {now.year}-{now.month:02d}")
         totals   = sh.get_monthly_totals(sheet_id, members, now.year, now.month)
         totals["overall"] = sum(totals[m] for m in members if m != "overall")
+        app.logger.info(f"✅ Monthly totals: {totals}")
         
+        app.logger.info(f"📝 Fetching today's transactions")
         recent   = sh.get_today_transactions(sheet_id, members, today_str=today, n=5)  # Get today's transactions only, up to 5
+        app.logger.info(f"✅ Recent transactions: {len(recent)} entries")
+        
         anomalies = calc.detect_anomaly(totals, members)
         
         # Get all monthly summaries from Sheet1 (last 6 months)
+        app.logger.info(f"📅 Fetching monthly summaries (last 6 months)")
         all_monthly_summaries = sh.get_all_monthly_summaries(sheet_id, members, limit=6)
+        app.logger.info(f"✅ Monthly summaries: {len(all_monthly_summaries)} months")
     except Exception as e:
-        app.logger.error(f"Dashboard data error: {e}")
+        import traceback
+        app.logger.error(f"❌ Dashboard data error: {str(e)}", exc_info=True)
+        app.logger.error(f"\n📋 Full traceback:\n{traceback.format_exc()}")
         totals    = {m: 0 for m in members} | {"overall": 0}
         recent    = []
         anomalies = []
@@ -506,6 +529,64 @@ def api_predict():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     return jsonify({"predictions": predictions})
+
+
+# ── Diagnostics ───────────────────────────────────────────────────────────────
+
+@app.route("/api/diagnostic")
+@login_required
+def diagnostic():
+    """Diagnostic endpoint to check all systems and environment setup."""
+    members    = get_members()
+    sheet_id   = get_sheet_id()
+    
+    diagnostics = {
+        "members": members,
+        "sheet_id": sheet_id if sheet_id else "❌ NOT SET",
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
+    }
+    
+    # Check 1: Environment variables
+    diagnostics["checks"]["env_vars"] = {
+        "ROOMMATES": "✅ SET" if members else "❌ MISSING",
+        "GOOGLE_SHEET_ID": "✅ SET" if sheet_id else "❌ MISSING",
+        "GOOGLE_CREDENTIALS_B64": "✅ SET" if os.getenv("GOOGLE_CREDENTIALS_B64") else "❌ MISSING"
+    }
+    
+    # Check 2: Google Sheets API connectivity
+    try:
+        service = sh._get_service()
+        diagnostics["checks"]["google_auth"] = "✅ PASS - Credentials loaded"
+    except Exception as e:
+        diagnostics["checks"]["google_auth"] = f"❌ FAIL - {str(e)[:100]}"
+    
+    # Check 3: Can read sheet metadata
+    if sheet_id:
+        try:
+            data = sh._read_all(sh._get_service(), sheet_id)
+            diagnostics["checks"]["sheet_read"] = f"✅ PASS - Sheet has {len(data)} rows"
+            if data:
+                diagnostics["checks"]["sheet_headers"] = data[0]
+        except Exception as e:
+            diagnostics["checks"]["sheet_read"] = f"❌ FAIL - {str(e)[:100]}"
+    
+    # Check 4: Data fetch functions
+    if sheet_id:
+        try:
+            totals = sh.get_totals(sheet_id, members)
+            diagnostics["checks"]["get_totals"] = f"✅ PASS - {totals}"
+        except Exception as e:
+            diagnostics["checks"]["get_totals"] = f"❌ FAIL - {str(e)[:100]}"
+        
+        try:
+            now = datetime.now()
+            monthly = sh.get_monthly_totals(sheet_id, members, now.year, now.month)
+            diagnostics["checks"]["get_monthly_totals"] = f"✅ PASS - {monthly}"
+        except Exception as e:
+            diagnostics["checks"]["get_monthly_totals"] = f"❌ FAIL - {str(e)[:100]}"
+    
+    return jsonify(diagnostics)
 
 
 # ── Exports ───────────────────────────────────────────────────────────────────
