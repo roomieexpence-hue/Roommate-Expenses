@@ -39,7 +39,7 @@
 }
 .page-header-total .total-value {
   font-family: var(--font-head);
-  font-size: 1.8rem; font-weight: 800;
+  font-size: 2.1rem; font-weight: 600;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -53,7 +53,7 @@
     font-size: 1.8rem;
   }
   .page-header-total .total-value {
-    font-size: 1.4rem;
+    font-size: 1.5rem;
   }
 }
 
@@ -186,24 +186,83 @@
 
 /* ── Anomaly Alert ────────────────────────────────────────── */
 .anomaly-alert {
-  background: rgba(31, 41, 55, 0.4);
-  border: 1px solid rgba(251, 191, 36, 0.2);
-  border-radius: 12px;
-  padding: .85rem 1.1rem;
-  display: flex; align-items: center; gap: .6rem;
-  color: #fbbf24;
-  font-weight: 500; font-size: .85rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,.1);
+  background: rgba(107, 114, 128, 0.08);
+  border: 1px solid rgba(107, 114, 128, 0.15);
+  border-radius: 10px;
+  padding: .6rem .85rem;
+  display: flex; align-items: center; gap: .5rem;
+  color: #6b7280;
+  font-weight: 400; font-size: .8rem;
+  box-shadow: none;
 }
 html:not(.dark-mode) .anomaly-alert {
-  background: rgba(254, 243, 199, 0.4);
-  border-color: rgba(252, 211, 77, 0.3);
-  color: #b45309;
+  background: rgba(107, 114, 128, 0.06);
+  border-color: rgba(107, 114, 128, 0.12);
+  color: #6b7280;
 }
-.anomaly-alert i { font-size: 1rem; opacity: 0.8; }
+.anomaly-alert i { font-size: .9rem; opacity: 0.7; }
 .anomaly-alert strong {
-  font-weight: 700; margin-right: .2rem;
+  font-weight: 600; margin-right: .2rem;
 }
+
+/* ── Loading Spinner ──────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 0.5rem;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ── Loading overlay for monthly history ──────────────────── */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top: 4px solid #5c3df4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── Dark mode fixes ────────────────────────────────────── */
+/* Date input icon color in dark mode */
+html.dark-mode input[type="date"] {
+  color: #f0f0f2;
+}
+html.dark-mode input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(0.8);
+  cursor: pointer;
+}
+html.dark-mode input[type="date"]::-webkit-clear-button {
+  filter: invert(1);
+}
+
+/* Daily chart axis text in dark mode */
+html.dark-mode .chart-wrap {
+  color: #f0f0f2;
+}
+
+
 </style>
 {% endblock %}
 
@@ -237,6 +296,7 @@ html:not(.dark-mode) .anomaly-alert {
   <div class="overview-strip">
     {% for member in members %}
     {% set color = member_colors[loop.index0 % member_colors|length] %}
+    {% set pct = (totals.get(member, 0) / totals.overall * 100) if totals.overall > 0 else 0 %}
     <div class="stat-card">
       <div class="accent-bar" style="background:{{ color }}"></div>
       <div class="label">
@@ -246,29 +306,12 @@ html:not(.dark-mode) .anomaly-alert {
         ₹{{ '{:,.0f}'.format(totals.get(member, 0)) }}
       </div>
       <div class="sub">all-time total</div>
+      <div class="spending-share-label" style="color:{{ color }}">Spending Share: {{ '{:.1f}'.format(pct) }}%</div>
     </div>
     {% endfor %}
   </div>
 
-  <!-- Spending progress bars -->
-  <div class="card" style="margin-bottom:1.5rem">
-    <div class="section-header">
-      <span class="section-title">Spending Share</span>
-    </div>
-    {% for member in members %}
-    {% set color = member_colors[loop.index0 % member_colors|length] %}
-    {% set pct = (totals.get(member, 0) / totals.overall * 100) if totals.overall > 0 else 0 %}
-    <div class="prog-row">
-      <div class="prog-label">
-        <span><span class="mdot" style="background:{{ color }}"></span>{{ member }}</span>
-        <span>{{ '{:.1f}'.format(pct) }}%</span>
-      </div>
-      <div class="prog-track">
-        <div class="prog-fill" style="background:{{ color }};width:{{ pct }}%"></div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+
 
   <!-- Chart + Settlement row -->
   <div class="two-col">
@@ -317,7 +360,7 @@ html:not(.dark-mode) .anomaly-alert {
     <div class="card">
       <div class="section-header">
         <span class="section-title">Recent Transactions</span>
-        <span class="badge" style="background:var(--paper); color:var(--muted); border:1px solid var(--border)">Last 5</span>
+        <span class="badge" style="background:var(--paper); color:var(--muted); border:1px solid var(--border)\">Today</span>
       </div>
       {% if recent %}
         {% for tx in recent %}
@@ -341,7 +384,7 @@ html:not(.dark-mode) .anomaly-alert {
     <!-- Quick add (desktop) -->
     <div class="card">
       <div class="section-title" style="margin-bottom:1.25rem">Quick Add Expense</div>
-      <form action="{{ url_for('add_expense') }}" method="POST">
+      <form action="{{ url_for('add_expense') }}" method="POST" id="quickAddForm">
         <div class="form-group">
           <label>Member</label>
           <select name="member" required>
@@ -356,12 +399,61 @@ html:not(.dark-mode) .anomaly-alert {
           <label>Date</label>
           <input type="date" name="date" value="{{ today }}" max="{{ today }}" required/>
         </div>
-        <button type="submit" class="btn btn-primary" style="width:100%">
-          <i class="fas fa-plus"></i> Add Expense
+        <button type="submit" class="btn btn-primary" style="width:100%" id="submitBtnDesktop">
+          <span class="spinner" id="spinnerDesktop" style="display:none;"></span>
+          <i class="fas fa-plus" id="iconDesktop"></i> <span id="textDesktop">Add Expense</span>
         </button>
       </form>
     </div>
   </div>
+
+  <!-- Daily Expenses Line Chart -->
+  <div class="card" style="margin-bottom: 0;">
+    <div class="section-header">
+      <span class="section-title">📈 Daily Expense Trend</span>
+      <div class="toggle-group" id="dailyChartToggle">
+        <button class="active" data-days="5" onclick="setDailyChartFilter(5, this)">Last 5 Days</button>
+        <button data-days="10" onclick="setDailyChartFilter(10, this)">Last 10 Days</button>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height: 320px;">
+      <canvas id="dailyExpenseChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Monthly Summary Section (ARCHIVE) -->
+  {% if archived_months %}
+  <div class="card" style="margin-top: 2rem;">
+    <div class="section-header">
+      <span class="section-title">📊 Monthly History (Last 6) - Click for details</span>
+    </div>
+    <div style="overflow-x: auto;">
+      <table style="width:100%; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--border);">
+            <th style="text-align: left; padding: .75rem; font-weight: 600; color: var(--muted);">Month/Year</th>
+            <th style="text-align: right; padding: .75rem; font-weight: 600; color: var(--muted);">Total Expense</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for month_data in archived_months %}
+          <tr style="border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.2s;" 
+              data-month="{{ month_data.month }}" data-year="{{ month_data.year }}"
+              onclick="showMonthDetails(this.dataset.year, this.dataset.month)"
+              onmouseover="this.style.background='var(--hover)'" onmouseout="this.style.background='transparent'">
+            <td style="padding: .75rem; color: var(--ink); font-weight: 500;">
+              {{ month_data.month }}/{{ month_data.year }}
+            </td>
+            <td style="text-align: right; padding: .75rem; color: var(--ink); font-weight: 600;">
+              ₹{{ '{:,.0f}'.format(month_data.total_expense) }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Full data table -->
   <div class="table-section">
@@ -401,7 +493,7 @@ html:not(.dark-mode) .anomaly-alert {
       <i class="fas fa-times"></i>
     </button>
     <div class="modal-title">Add Expense</div>
-    <form action="{{ url_for('add_expense') }}" method="POST">
+    <form action="{{ url_for('add_expense') }}" method="POST" id="mobileAddForm">
       <div class="form-group">
         <label>Member</label>
         <select name="member" required>
@@ -416,10 +508,24 @@ html:not(.dark-mode) .anomaly-alert {
         <label>Date</label>
         <input type="date" name="date" value="{{ today }}" max="{{ today }}" required/>
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%">
-        <i class="fas fa-plus"></i> Add Expense
+      <button type="submit" class="btn btn-primary" style="width:100%" id="submitBtnMobile">
+        <span class="spinner" id="spinnerMobile" style="display:none;"></span>
+        <i class="fas fa-plus" id="iconMobile"></i> <span id="textMobile">Add Expense</span>
       </button>
     </form>
+  </div>
+</div>
+
+<!-- Month Details Modal -->
+<div class="modal-backdrop" id="monthDetailsModal">
+  <div class="modal" style="max-height: 85vh; overflow-y: auto;">
+    <button class="modal-close" onclick="document.getElementById('monthDetailsModal').classList.remove('open')">
+      <i class="fas fa-times"></i>
+    </button>
+    <div class="modal-title" id="monthDetailsTitle">Month Details</div>
+    <div id="monthDetailsContent" style="padding: 1rem 0;">
+      <p style="color: var(--muted); text-align: center;">Loading...</p>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -433,6 +539,94 @@ const MEMBER_COLORS_CSS = [
 ];
 const CURRENT_YEAR  = {{ current_year }};
 const CURRENT_MONTH = {{ current_month_num }};
+
+/* ── Loading State Handler ─────────────────────────────────── */
+let isFormSubmitting = false;
+
+function showLoadingState(submitBtnId, spinnerId, iconId, textId) {
+  const submitBtn = document.getElementById(submitBtnId);
+  const spinner = document.getElementById(spinnerId);
+  const icon = document.getElementById(iconId);
+  const text = document.getElementById(textId);
+  
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    if (spinner) spinner.style.display = 'inline-block';
+    if (icon) icon.style.display = 'none';
+    if (text) text.textContent = 'Adding...';
+  }
+}
+
+function handleFormSubmit(formElement, submitBtnId, spinnerId, iconId, textId) {
+  const form = formElement;
+  
+  form.addEventListener('submit', function(e) {
+    // Prevent multiple simultaneous submissions
+    if (isFormSubmitting) {
+      e.preventDefault();
+      return false;
+    }
+    
+    isFormSubmitting = true;
+    
+    // Show full page loading overlay
+    const fullPageOverlay = document.createElement('div');
+    fullPageOverlay.className = 'loading-overlay';
+    fullPageOverlay.id = 'expenseSubmitOverlay';
+    fullPageOverlay.innerHTML = '<div class="loading-spinner"></div>';
+    fullPageOverlay.style.zIndex = '9999';
+    document.body.appendChild(fullPageOverlay);
+    
+    // Show loading state on the specific button
+    const submitBtn = document.getElementById(submitBtnId);
+    const spinner = document.getElementById(spinnerId);
+    const icon = document.getElementById(iconId);
+    const text = document.getElementById(textId);
+    
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      if (spinner) spinner.style.display = 'inline-block';
+      if (icon) icon.style.display = 'none';
+      if (text) text.textContent = 'Adding...';
+    }
+    
+    // Also disable other submit buttons if they exist
+    if (submitBtnId === 'submitBtnMobile') {
+      const desktopBtn = document.getElementById('submitBtnDesktop');
+      if (desktopBtn) desktopBtn.disabled = true;
+    } else if (submitBtnId === 'submitBtnDesktop') {
+      const mobileBtn = document.getElementById('submitBtnMobile');
+      if (mobileBtn) mobileBtn.disabled = true;
+    }
+    
+    // Let form submit normally, will redirect on success
+  });
+}
+
+// Initialize form handlers when DOM loads
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize desktop form (Quick Add)
+  const desktopForm = document.getElementById('quickAddForm');
+  if (desktopForm) {
+    handleFormSubmit(desktopForm, 'submitBtnDesktop', 'spinnerDesktop', 'iconDesktop', 'textDesktop');
+  }
+  
+  // Initialize mobile form (Modal)
+  const mobileForm = document.getElementById('mobileAddForm');
+  if (mobileForm) {
+    handleFormSubmit(mobileForm, 'submitBtnMobile', 'spinnerMobile', 'iconMobile', 'textMobile');
+  }
+  
+  // Reset isFormSubmitting on page unload to allow fresh submissions on reload
+  window.addEventListener('beforeunload', function() {
+    isFormSubmitting = false;
+  });
+  
+  // Initialize charts and ledger (called once)
+  buildChart('month');
+  buildDailyChart();
+  loadLedger();
+});
 
 /* ── Chart setup ───────────────────────────────────────────── */
 let chart = null;
@@ -503,6 +697,115 @@ async function buildChart(mode) {
   });
 }
 
+/* ── Daily Expenses Line Chart ─────────────────────────────── */
+let dailyChart = null;
+let dailyChartDays = 5; // Default filter
+
+async function fetchDailyChartData() {
+  try {
+    const res = await fetch('/api/daily-expenses');
+    const json = await res.json();
+    return json.daily || {};
+  } catch (e) {
+    console.error('Failed to fetch daily data:', e);
+    return {};
+  }
+}
+
+async function buildDailyChart(days = 5) {
+  const dailyData = await fetchDailyChartData();
+  
+  // Sort dates and prepare data for combined daily total
+  const sortedDates = Object.keys(dailyData).sort();
+  
+  // Get last N days (including previous month if needed)
+  const lastNDates = sortedDates.slice(-days);
+  
+  // Calculate combined daily totals
+  const combinedTotals = lastNDates.map(date => {
+    const dayExpenses = dailyData[date] || {};
+    return MEMBERS.reduce((sum, m) => sum + (dayExpenses[m] || 0), 0);
+  });
+
+  const ctx = document.getElementById('dailyExpenseChart');
+  if (!ctx) return;
+  
+  if (dailyChart) dailyChart.destroy();
+  
+  // Detect dark mode
+  const isDarkMode = document.documentElement.classList.contains('dark-mode');
+  const textColor = isDarkMode ? '#f0f0f2' : '#8f8d85';
+  
+  // Create gradient for the line
+  const chartCtx = ctx.getContext('2d');
+  const gradient = chartCtx.createLinearGradient(0, 0, 0, 400);
+  gradient.addColorStop(0, 'rgba(92, 61, 244, 0.3)');
+  gradient.addColorStop(1, 'rgba(92, 61, 244, 0.01)');
+  
+  dailyChart = new Chart(chartCtx, {
+    type: 'line',
+    data: {
+      labels: lastNDates,
+      datasets: [{
+        label: 'Total',
+        data: combinedTotals,
+        borderColor: '#5c3df4',
+        backgroundColor: gradient,
+        borderWidth: 3,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 5,
+        pointBackgroundColor: '#5c3df4',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointHoverRadius: 7,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false  // Hide legend to avoid the button issue
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ₹${ctx.parsed.y.toLocaleString('en-IN')}`
+          },
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          padding: 12,
+          titleFont: { size: 13, weight: 'bold' },
+          bodyFont: { size: 12 }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { 
+            font: { size: 12, weight: '500' },
+            color: textColor
+          }
+        },
+        y: {
+          grid: { color: 'rgba(200,200,200,0.1)', drawBorder: false },
+          ticks: {
+            callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(1)+'k' : v),
+            font: { size: 11 },
+            color: textColor
+          }
+        }
+      }
+    }
+  });
+}
+
+function setDailyChartFilter(days, btn) {
+  dailyChartDays = days;
+  document.querySelectorAll('#dailyChartToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  buildDailyChart(days);
+}
+
 function setChartMode(mode, btn) {
   chartMode = mode;
   document.querySelectorAll('#chartToggle button').forEach(b => b.classList.remove('active'));
@@ -524,8 +827,13 @@ async function loadLedger() {
     }
     loading.style.display = 'none';
 
-    // Header
+    // Clear existing table content
     const headRow = document.getElementById('ledgerHead');
+    const tbody = document.getElementById('ledgerBody');
+    headRow.innerHTML = '';
+    tbody.innerHTML = '';
+
+    // Header
     data[0].forEach((cell, i) => {
       const th = document.createElement('th');
       th.textContent = cell;
@@ -537,7 +845,6 @@ async function loadLedger() {
     });
 
     // Body
-    const tbody = document.getElementById('ledgerBody');
     data.slice(1).forEach(row => {
       const tr = document.createElement('tr');
       data[0].forEach((_, i) => {
@@ -561,10 +868,148 @@ async function loadLedger() {
 document.getElementById('addModal').addEventListener('click', function(e) {
   if (e.target === this) this.classList.remove('open');
 });
+/* ── Archive Month Function ─────────────────────────────── */
+async function archiveThisMonth() {
+  if (!confirm('Archive this month to Sheet2? This will save the monthly summary for future reference.')) {
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/archive-month', { method: 'POST' });
+    const json = await res.json();
+    
+    if (json.success) {
+      alert('✅ ' + json.message);
+      // Refresh page to show updated archive
+      location.reload();
+    } else {
+      alert('❌ Error: ' + json.error);
+    }
+  } catch (e) {
+    alert('❌ Failed to archive: ' + e.message);
+  }
+}
 
-/* ── Init ─────────────────────────────────────────────────── */
-buildChart('month');
-loadLedger();
+/* ── Show Month Details (Clickable History) ─────────────── */
+async function showMonthDetails(year, monthName) {
+  const monthMap = {
+    'January': 1, 'February': 2, 'March': 3, 'April': 4,
+    'May': 5, 'June': 6, 'July': 7, 'August': 8,
+    'September': 9, 'October': 10, 'November': 11, 'December': 12
+  };
+  
+  const month = monthMap[monthName];
+  if (!month) {
+    alert('Invalid month');
+    return;
+  }
+  
+  // Show loading overlay
+  const loadingOverlay = document.createElement('div');
+  loadingOverlay.className = 'loading-overlay';
+  loadingOverlay.innerHTML = '<div class="loading-spinner"></div>';
+  document.body.appendChild(loadingOverlay);
+  
+  try {
+    const res = await fetch(`/api/month-details?year=${year}&month=${month}`);
+    const data = await res.json();
+    
+    if (data.error) {
+      alert('Error: ' + data.error);
+      return;
+    }
+    
+    // Build HTML content
+    let html = `
+      <div style="margin-bottom: 1.5rem;">
+        <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem; color: var(--ink);">
+          Total Expense: <span style="color: var(--accent); font-size: 1.3rem;">₹${data.overall.toLocaleString('en-IN')}</span>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem;">
+    `;
+    
+    // Member totals grid
+    for (let member of data.members) {
+      const total = data.member_totals[member] || 0;
+      const idx = data.members.indexOf(member);
+      const color = MEMBER_COLORS_CSS[idx % MEMBER_COLORS_CSS.length];
+      html += `
+        <div style="padding: 0.75rem; background: var(--hover); border-radius: 8px; border-left: 3px solid ${color};">
+          <div style="font-size: 0.85rem; color: var(--muted); margin-bottom: 0.25rem;">${member}</div>
+          <div style="font-size: 1.1rem; font-weight: 700; color: ${color};">₹${total.toLocaleString('en-IN')}</div>
+        </div>
+      `;
+    }
+    
+    html += `</div>`;
+    
+    // Settlement section
+    if (data.settlement && data.settlement.length > 0) {
+      html += `
+        <div style="padding: 1rem; background: var(--hover); border-radius: 8px; margin-bottom: 1.5rem; border-left: 3px solid var(--accent2);">
+          <div style="font-weight: 600; margin-bottom: 0.75rem; color: var(--ink);">Settlement Needed:</div>
+      `;
+      for (let settle of data.settlement) {
+        html += `
+          <div style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--ink);">
+            <strong>${settle.payer}</strong> pays <strong>${settle.receiver}</strong>
+            <span style="color: var(--accent); font-weight: 700; margin-left: 0.5rem;">₹${settle.amount.toLocaleString('en-IN')}</span>
+          </div>
+        `;
+      }
+      html += `</div>`;
+    } else {
+      html += `
+        <div style="padding: 1rem; background: var(--hover); border-radius: 8px; margin-bottom: 1.5rem; border-left: 3px solid var(--accent3);">
+          <div style="color: var(--accent3); font-weight: 600;">✓ All members are square!</div>
+        </div>
+      `;
+    }
+    
+    // Transactions list
+    if (data.transactions && data.transactions.length > 0) {
+      html += `
+        <div>
+          <div style="font-weight: 600; margin-bottom: 0.75rem; color: var(--ink);">Transactions (${data.transactions.length}):</div>
+      `;
+      for (let tx of data.transactions) {
+        const idx = data.members.indexOf(tx.member);
+        const color = MEMBER_COLORS_CSS[idx % MEMBER_COLORS_CSS.length];
+        html += `
+          <div style="padding: 0.75rem; margin-bottom: 0.5rem; background: var(--paper); border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="color: var(--ink);">
+              <strong style="color: ${color};">${tx.member}</strong>
+              <span style="color: var(--muted); font-size: 0.9rem; margin-left: 0.5rem;">${tx.date}</span>
+            </div>
+            <div style="color: ${color}; font-weight: 700;">₹${tx.amount.toLocaleString('en-IN')}</div>
+          </div>
+        `;
+      }
+      html += `</div>`;
+    } else {
+      html += `<p style="color: var(--muted); text-align: center;">No transactions found.</p>`;
+    }
+    
+    // Update modal
+    document.getElementById('monthDetailsTitle').textContent = `${data.month} ${data.year} - Details`;
+    document.getElementById('monthDetailsContent').innerHTML = html;
+    
+    // Remove loading overlay
+    loadingOverlay.remove();
+    
+    // Open modal
+    document.getElementById('monthDetailsModal').classList.add('open');
+  } catch (e) {
+    loadingOverlay.remove();
+    alert('Failed to load month details: ' + e.message);
+  }
+}
+
+/* ── Close month details modal on backdrop click ─────────── */
+document.getElementById('monthDetailsModal')?.addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
 
 /* ── Auto-dismiss flash after 4s ────────────────────────── */
 setTimeout(() => {
