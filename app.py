@@ -155,32 +155,44 @@ def dashboard():
     members    = get_members()
     sheet_id   = get_sheet_id()
     today      = date.today().isoformat()
+    now        = datetime.now()
 
     try:
         # Sync sheet members with code (recreates any accidentally deleted columns)
         sh.sync_sheet_members(sheet_id, members)
         
-        totals   = sh.get_totals(sheet_id, members)
-        recent   = sh.get_recent_transactions(sheet_id, members, n=5)
+        # Get ONLY current month totals for dashboard
+        totals   = sh.get_monthly_totals(sheet_id, members, now.year, now.month)
+        totals["overall"] = sum(totals[m] for m in members if m != "overall")
+        
+        recent   = sh.get_today_transactions(sheet_id, members, today_str=today, n=5)  # Get today's transactions only, up to 5
         anomalies = calc.detect_anomaly(totals, members)
+        
+        # Get all monthly summaries from Sheet1 (last 6 months)
+        all_monthly_summaries = sh.get_all_monthly_summaries(sheet_id, members, limit=6)
     except Exception as e:
         app.logger.error(f"Dashboard data error: {e}")
         totals    = {m: 0 for m in members} | {"overall": 0}
         recent    = []
         anomalies = []
+        all_monthly_summaries = []
 
     settle = calc.settlement(totals, members)
 
-    now = datetime.now()
+    month_start = date(now.year, now.month, 1).isoformat()
+    month_end = date.today().isoformat()
+    
     return render_template(
         "dashboard.html",
         members=members,
         totals=totals,
         recent=recent,
         settlement=settle,
+        archived_months=all_monthly_summaries,
         anomalies=anomalies,
         categories=CATEGORIES,
-        today=today,
+        today=month_end,
+        month_start=month_start,
         current_month=now.strftime("%B %Y"),
         current_year=now.year,
         current_month_num=now.month,
@@ -216,6 +228,7 @@ def add_expense():
     try:
         exp_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         today = date.today()
+        
         if exp_date > today:
             flash("❌ Cannot add expenses for future dates. Please select today or an earlier date.")
             return redirect(url_for("dashboard"))
@@ -249,15 +262,29 @@ def add_expense():
     summary = calc.build_summary_text(totals, members, member, amount)
     app.logger.info(summary)
 
-    # Email notification (non-blocking failure)
+    # Get month/year from expense date
+    exp_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    
+    # Email notification with month/year (non-blocking failure)
     try:
         mail.send_expense_notification(
             member, amount, "", "", date_str,
-            totals, members, settle
+            totals, members, settle,
+            year=exp_date.year,
+            month=exp_date.month
         )
     except Exception as e:
         app.logger.warning(f"Email failed: {e}")
 
+    # Auto-archive the month if it's an older date
+    try:
+        if exp_date < today:
+            # This is a past expense, check if we should archive that month
+            sh.archive_month_to_sheet2(sheet_id, members, exp_date.year, exp_date.month)
+            app.logger.info(f"Auto-archived {exp_date.strftime('%B %Y')}")
+    except Exception as e:
+        app.logger.warning(f"Auto-archive failed: {e}")
+    
     flash(f"✅ ₹{amount:,.0f} added for {member} on {date_str}.")
     return redirect(url_for("dashboard"))
 
@@ -312,6 +339,148 @@ def api_settlement():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     return jsonify({"settlement": settle})
+
+
+@app.route("/api/monthly-summary")
+@login_required
+def api_monthly_summary():
+    """Get monthly summary with settlement info."""
+    members  = get_members()
+    sheet_id = get_sheet_id()
+    year  = int(request.args.get("year",  datetime.now().year))
+    month = int(request.args.get("month", datetime.now().month))
+    
+    try:
+        summary = sh.get_monthly_summary(sheet_id, members, year, month)
+        return jsonify(summary)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/previous-month")
+@login_required
+def api_previous_month():
+    """Get previous month's totals and settlement."""
+    members  = get_members()
+    sheet_id = get_sheet_id()
+    now = datetime.now()
+    
+    # Calculate previous month
+    prev_month = now.month - 1
+    prev_year = now.year
+    if prev_month < 1:
+        prev_month = 12
+        prev_year -= 1
+    
+    try:
+        summary = sh.get_monthly_summary(sheet_id, members, prev_year, prev_month)
+        return jsonify(summary)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/archived-months")
+@login_required
+def api_archived_months():
+    """Get all archived months from Sheet2."""
+    members  = get_members()
+    sheet_id = get_sheet_id()
+    limit    = int(request.args.get("limit", 12))
+    
+    try:
+        archived = sh.get_archived_months(sheet_id, members, limit)
+        return jsonify({"archived_months": archived, "members": members})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/archive-month", methods=["POST"])
+@login_required
+def api_archive_month():
+    """Archive current month to Sheet2."""
+    members  = get_members()
+    sheet_id = get_sheet_id()
+    now = datetime.now()
+    
+    try:
+        # Archive current month to Sheet2
+        sh.archive_month_to_sheet2(sheet_id, members, now.year, now.month)
+        
+        # Get the archived data
+        archived = sh.get_archived_months(sheet_id, members, limit=1)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Month {now.strftime('%B %Y')} archived successfully!",
+            "archived": archived[0] if archived else None
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/month-details")
+@login_required
+def api_month_details():
+    """Get detailed transactions for a specific month."""
+    members  = get_members()
+    sheet_id = get_sheet_id()
+    year  = int(request.args.get("year", datetime.now().year))
+    month = int(request.args.get("month", datetime.now().month))
+    
+    try:
+        details = sh.get_month_transactions(sheet_id, members, year, month)
+        return jsonify(details)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/daily-expenses")
+@login_required
+def api_daily_expenses():
+    """Get daily expense totals by member for all dates (chart will filter to last N days)."""
+    members  = get_members()
+    sheet_id = get_sheet_id()
+    
+    try:
+        # Get all data from Sheet1
+        all_data = sh.get_all_data(sheet_id)
+        
+        daily_totals = {}
+        
+        # Parse data (skip header)
+        if len(all_data) > 1:
+            for row_data in all_data[1:]:
+                if not row_data or not row_data[0]:
+                    continue
+                    
+                date_str = row_data[0]
+                
+                # Parse date
+                try:
+                    row_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                except:
+                    continue
+                
+                date_key = date_str
+                if date_key not in daily_totals:
+                    daily_totals[date_key] = {m: 0 for m in members}
+                
+                # Parse expenses for each member
+                for idx, member in enumerate(members):
+                    if idx + 1 < len(row_data) and row_data[idx + 1]:
+                        cell_val = row_data[idx + 1]
+                        # Handle multiple entries in one cell (e.g., "100+50+25")
+                        parts = str(cell_val).split('+')
+                        for part in parts:
+                            try:
+                                daily_totals[date_key][member] += float(part)
+                            except (ValueError, TypeError):
+                                pass
+        
+        return jsonify({"daily": daily_totals, "members": members})
+    except Exception as e:
+        app.logger.error(f"Daily expenses error: {e}")
+        return jsonify({"daily": {}, "members": members}), 500
 
 
 @app.route("/api/predict")
