@@ -141,6 +141,7 @@
 .tx-info { flex: 1; min-width: 0; }
 .tx-name { font-weight: 600; font-size: .875rem; }
 .tx-date { font-size: .75rem; color: var(--muted); }
+.tx-time { font-size: .5rem; color: #aaa; opacity: .4; margin-left: .3rem; letter-spacing: -.5px; }
 .tx-amt { font-family: var(--font-head); font-weight: 700; font-size: 1rem; }
 
 /* ── Progress bar ─────────────────────────────────────────── */
@@ -360,7 +361,7 @@ html.dark-mode .chart-wrap {
     <div class="card">
       <div class="section-header">
         <span class="section-title">Recent Transactions</span>
-        <span class="badge" style="background:var(--paper); color:var(--muted); border:1px solid var(--border)\">Today</span>
+        <span class="badge" style="background:var(--paper); color:var(--muted); border:1px solid var(--border)\">Last 5</span>
       </div>
       {% if recent %}
         {% for tx in recent %}
@@ -371,7 +372,10 @@ html.dark-mode .chart-wrap {
           </div>
           <div class="tx-info">
             <div class="tx-name">{{ tx.member }}</div>
-            <div class="tx-date">{{ tx.date }}</div>
+            <div class="tx-date">
+              {{ tx.date }}
+              {% if tx.time %}<span class="tx-time">({{ tx.time }})</span>{% endif %}
+            </div>
           </div>
           <div class="tx-amt" style="color:{{ color }}">₹{{ '{:,.0f}'.format(tx.amount) }}</div>
         </div>
@@ -849,11 +853,20 @@ async function loadLedger() {
       const tr = document.createElement('tr');
       data[0].forEach((_, i) => {
         const td = document.createElement('td');
-        td.textContent = row[i] || '';
         if (i > 0 && row[i]) {
-          const total = row[i].split('+').reduce((s,n) => s + parseFloat(n)||0, 0);
-          td.textContent = row[i];
+          // Format cell with time styling
+          const cellValue = row[i];
+          const total = cellValue.split('+').reduce((s,n) => {
+            const match = n.match(/^([\d.]+)/);
+            return s + (match ? parseFloat(match[1]) : 0);
+          }, 0);
+          
+          // Parse and format: 100(14:35:54)+50(15:20:10) -> 100<span>(14:35)</span>+50<span>(15:20)</span>
+          const formatted = cellValue.replace(/\((\d{2}):(\d{2}):\d{2}\)/g, '<span class="tx-time" style="font-size: .65rem; color: #aaa; opacity: .4;">($1:$2)</span>');
+          td.innerHTML = formatted;
           td.title = `Total: ₹${total.toLocaleString('en-IN')}`;
+        } else {
+          td.textContent = row[i] || '';
         }
         tr.appendChild(td);
       });
