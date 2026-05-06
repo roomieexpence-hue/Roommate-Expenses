@@ -18,6 +18,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from . import calculations as calc
+from . import cache
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -242,6 +243,9 @@ def sync_sheet_members(spreadsheet_id: str, members: list[str]) -> None:
     service.spreadsheets().batchUpdate(
         spreadsheet_id=spreadsheet_id, body={"requests": requests}
     ).execute()
+    
+    # Invalidate cache after sync
+    cache.invalidate_sheet_cache(spreadsheet_id)
 
 
 # ─── Core write ───────────────────────────────────────────────────────────────
@@ -352,6 +356,9 @@ def add_expense(
         valueInputOption="RAW",
         body={"values": all_data},
     ).execute()
+    
+    # Invalidate cache after write
+    cache.invalidate_sheet_cache(spreadsheet_id)
 
 
 def add_member_column(spreadsheet_id: str, member_name: str, col_idx: int) -> None:
@@ -415,6 +422,9 @@ def add_member_column(spreadsheet_id: str, member_name: str, col_idx: int) -> No
             ]
         },
     ).execute()
+    
+    # Invalidate cache after adding column
+    cache.invalidate_sheet_cache(spreadsheet_id)
 
 
 def expense_exists(
@@ -460,13 +470,29 @@ def expense_exists(
 # ─── Reads ────────────────────────────────────────────────────────────────────
 
 def _read_all(service, spreadsheet_id: str) -> list[list[str]]:
+    """
+    Read all data from Sheet1, using cache to reduce API calls.
+    Cache TTL: 60 seconds (configurable in cache.py)
+    """
+    cache_key = f"sheet_{spreadsheet_id}_all_data"
+    
+    # Check cache first
+    cached_data = cache.get_cache_value(cache_key)
+    if cached_data is not None:
+        return cached_data
+    
+    # Cache miss - read from API
     result = (
         service.spreadsheets()
         .values()
         .get(spreadsheetId=spreadsheet_id, range="Sheet1")
         .execute()
     )
-    return result.get("values", [])
+    data = result.get("values", [])
+    
+    # Store in cache for next 60 seconds
+    cache.set_cache_value(cache_key, data)
+    return data
 
 
 def get_all_data(spreadsheet_id: str) -> list[list[str]]:
@@ -534,10 +560,11 @@ def get_monthly_totals(spreadsheet_id: str, members: list[str], year: int, month
 def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5) -> list[dict]:
     """
     Return the last *n* individual expense entries across all members,
-    sorted by actual datetime (date + time), newest first.
+    sorted by WHEN THEY WERE ADDED (row_idx first), not transaction date.
     Each entry: {date, member, amount, time}.
     
-    FIXED: Now sorts by actual datetime (date + time), not just time of day
+    Back-dated transactions added today will show as "recent" (high row_idx).
+    Sort order: row_idx (desc) → part_idx (desc) → time_seconds (desc)
     """
     data = _read_all(_get_service(), spreadsheet_id)
     if len(data) < 2:
@@ -568,33 +595,31 @@ def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5)
                 try:
                     amount, time_str = _parse_amount_with_time(part)
                     
-                    # Create full datetime from date + time for proper sorting
-                    # Format: "2024-06-01 14:30:45"
+                    # Parse time to seconds for final sorting within same row
+                    time_seconds = 0
                     if time_str:
-                        datetime_str = f"{date_str} {time_str}"
                         try:
-                            full_datetime = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
-                        except ValueError:
-                            # Fallback to just date if time parsing fails
-                            full_datetime = datetime.strptime(date_str, "%Y-%m-%d")
-                    else:
-                        # No time, use just date
-                        full_datetime = datetime.strptime(date_str, "%Y-%m-%d")
+                            h, m, s = map(int, time_str.split(':'))
+                            time_seconds = h * 3600 + m * 60 + s
+                        except (ValueError, AttributeError):
+                            time_seconds = 0
                     
                     entries.append({
                         "date": date_str,
                         "member": member,
                         "amount": amount,
                         "time": time_str,
-                        "datetime": full_datetime,  # Full datetime for sorting
-                        "part_idx": part_idx
+                        "row_idx": row_idx,
+                        "part_idx": part_idx,
+                        "time_seconds": time_seconds
                     })
                 except ValueError:
                     pass
 
-    # Sort by: datetime (newest first), then part_idx (insertion order within same datetime)
-    # This ensures transactions show by actual date+time they were added (most recent first)
-    entries.sort(key=lambda x: (x["datetime"], x["part_idx"]), reverse=True)
+    # Sort by: row_idx (desc) → part_idx (desc) → time_seconds (desc)
+    # This means: most recent row added → order within row → time of day
+    # Back-dated transactions added today will show as recent!
+    entries.sort(key=lambda x: (x["row_idx"], x["part_idx"], x["time_seconds"]), reverse=True)
     
     # Build result with last n transactions
     result = []
