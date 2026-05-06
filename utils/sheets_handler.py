@@ -301,36 +301,47 @@ def add_expense(
     """
     Add an expense for *member_name* on *date_str*.
 
-    • ALWAYS creates a NEW ROW at the END of the sheet (most recent addition)
-    • Does NOT append to existing rows - each transaction is a separate row
-    • Back-dated transactions get high row_idx → show as "recent"
+    • Syncs sheet members with current code members first (recreates deleted columns)
+    • If the date row exists, append amount with '+' to same row
+    • If not, create a new row for that date
     • Stores in format: amount(HH:MM:SS) e.g., 123(14:30:45)
-    
-    Why separate rows? 
-    - Tracks WHEN added (row position) vs WHEN it happened (date column)
-    - Recent transactions show by row_idx (most recent row = most recent add)
-    - Back-dated transaction added today shows as recent ✅
+    • Keeps sheet sorted by DATE (chronological order)
     """
     service = _get_service()
     
     # IMPORTANT: Sync members first to ensure all columns exist
-    # This recreates any accidentally deleted member columns
     sync_sheet_members(spreadsheet_id, members)
     
     all_data = _read_all(service, spreadsheet_id)
-
     headers = all_data[0] if all_data else ["Date"] + members
-    col_idx = headers.index(member_name)   # raises ValueError if not found
+    col_idx = headers.index(member_name)
 
-    # ALWAYS create a new row (don't search for existing rows with same date)
-    new_row = [""] * (len(headers))
-    new_row[0] = date_str
-    new_row[col_idx] = _format_amount_with_time(amount)
-    all_data.append(new_row)
-    
-    # NOTE: Do NOT sort by date! 
-    # Keep rows in insertion order so row_idx reflects when transaction was added
-    # This way back-dated transactions show as "recent"
+    # Find existing row for this date
+    row_idx = None
+    for i, row in enumerate(all_data[1:], start=1):
+        if row and row[0] == date_str:
+            row_idx = i
+            break
+
+    amount_str = _format_amount_with_time(amount)
+
+    if row_idx is not None:
+        # Append to existing row for this date
+        row = all_data[row_idx]
+        while len(row) <= col_idx:
+            row.append("")
+        existing = row[col_idx].strip()
+        row[col_idx] = f"{existing}+{amount_str}" if existing else amount_str
+        all_data[row_idx] = row
+    else:
+        # Create new row for this date
+        new_row = [""] * len(headers)
+        new_row[0] = date_str
+        new_row[col_idx] = amount_str
+        all_data.append(new_row)
+        # IMPORTANT: Sort by date so chronological order is maintained
+        data_rows = sorted(all_data[1:], key=lambda r: r[0] if r else "")
+        all_data = [all_data[0]] + data_rows
 
     # Write back entire sheet
     service.spreadsheets().values().clear(
@@ -414,12 +425,7 @@ def expense_exists(
     amount: float,
     date_str: str,
 ) -> bool:
-    """
-    Check if the exact same expense (member, amount, date) already exists.
-    
-    Note: With new approach, each transaction is a separate row, so we check
-    across ALL rows with matching date (not just the first one).
-    """
+    """Check if the exact same expense (member, amount, date) already exists."""
     try:
         service = _get_service()
         all_data = _read_all(service, spreadsheet_id)
@@ -435,15 +441,17 @@ def expense_exists(
         
         amount_str = str(int(amount)) if amount == int(amount) else str(amount)
         
-        # Check ALL rows with this date (don't break after first match)
+        # Find the row for this date
         for row in all_data[1:]:
             if row and len(row) > 0 and row[0] == date_str:
-                if len(row) > col_idx and row[col_idx]:
+                if len(row) > col_idx:
                     cell_content = row[col_idx].strip()
-                    # Each cell now contains ONE transaction (no + separator with new approach)
-                    # But still check if it contains the amount
-                    if amount_str in cell_content:
+                    # Check if the exact amount exists in the cell
+                    # Cell might contain "100" or "100+50" etc
+                    amounts = cell_content.split('+')
+                    if amount_str in amounts:
                         return True
+                break
         
         return False
     except Exception:
@@ -526,26 +534,33 @@ def get_monthly_totals(spreadsheet_id: str, members: list[str], year: int, month
 
 def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5) -> list[dict]:
     """
-    Return the last *n* individual expense entries across all members,
-    sorted by WHEN THEY WERE ADDED (row_idx first), not transaction date.
-    Each entry: {date, member, amount, time}.
+    Return the last *n* individual expense entries, prioritizing TODAY's transactions.
     
-    Back-dated transactions added today will show as "recent" (high row_idx).
-    Sort order: row_idx (desc) → part_idx (desc) → time_seconds (desc)
+    Logic:
+    1. Collect all transactions from TODAY first
+    2. If less than n transactions today, fill remaining from previous dates (newest dates first)
+    3. Each entry: {date, member, amount, time}
+    4. Within same date, sort by time (newest first)
     """
+    from datetime import date as date_class
+    
     data = _read_all(_get_service(), spreadsheet_id)
     if len(data) < 2:
         return []
 
+    today_str = date_class.today().isoformat()
     headers = data[0]
-    entries = []
-
-    # Go through all rows and all members to collect transactions
-    for row_idx, row in enumerate(data[1:], start=1):
+    
+    # Organize transactions by date
+    transactions_by_date = {}  # {date_str: [transaction list]}
+    
+    for row in data[1:]:
         if not row or not row[0]:
             continue
         
         date_str = row[0]
+        if date_str not in transactions_by_date:
+            transactions_by_date[date_str] = []
         
         for member in members:
             if member not in headers:
@@ -558,11 +573,11 @@ def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5)
             cell = row[cidx].strip()
             parts = cell.split("+")
             
-            for part_idx, part in enumerate(parts):
+            for part in parts:
                 try:
                     amount, time_str = _parse_amount_with_time(part)
                     
-                    # Parse time to seconds for final sorting within same row
+                    # Parse time to seconds for sorting within same date
                     time_seconds = 0
                     if time_str:
                         try:
@@ -571,34 +586,49 @@ def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5)
                         except (ValueError, AttributeError):
                             time_seconds = 0
                     
-                    entries.append({
+                    transactions_by_date[date_str].append({
                         "date": date_str,
                         "member": member,
                         "amount": amount,
                         "time": time_str,
-                        "row_idx": row_idx,
-                        "part_idx": part_idx,
                         "time_seconds": time_seconds
                     })
                 except ValueError:
                     pass
-
-    # Sort by: row_idx (desc) → part_idx (desc) → time_seconds (desc)
-    # This means: most recent row added → order within row → time of day
-    # Back-dated transactions added today will show as recent!
-    entries.sort(key=lambda x: (x["row_idx"], x["part_idx"], x["time_seconds"]), reverse=True)
     
-    # Build result with last n transactions
+    # Sort transactions within each date by time (newest first)
+    for date_str in transactions_by_date:
+        transactions_by_date[date_str].sort(
+            key=lambda x: x["time_seconds"], 
+            reverse=True
+        )
+    
+    # Collect result: today first, then previous dates in reverse chronological order
     result = []
-    for e in entries[:n]:
-        item = {
-            "date": e["date"],
-            "member": e["member"],
-            "amount": e["amount"]
-        }
-        if e["time"]:
-            item["time"] = e["time"]
-        result.append(item)
+    dates_sorted = sorted(transactions_by_date.keys(), reverse=True)  # Newest dates first
+    
+    # Prioritize today's date - move it to front if it exists
+    if today_str in dates_sorted:
+        dates_sorted.remove(today_str)
+        dates_sorted.insert(0, today_str)
+    
+    # Collect up to n transactions
+    for date_str in dates_sorted:
+        for transaction in transactions_by_date[date_str]:
+            if len(result) >= n:
+                break
+            
+            item = {
+                "date": transaction["date"],
+                "member": transaction["member"],
+                "amount": transaction["amount"]
+            }
+            if transaction["time"]:
+                item["time"] = transaction["time"]
+            result.append(item)
+        
+        if len(result) >= n:
+            break
     
     return result
 
