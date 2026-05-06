@@ -263,6 +263,39 @@ html.dark-mode .chart-wrap {
   color: #f0f0f2;
 }
 
+/* Loading spinner for charts */
+.chart-spinner {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+}
+.chart-spinner.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.spinner-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin: 0 6px;
+  animation: spin 1.4s infinite;
+}
+.spinner-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.spinner-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes spin {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1); }
+}
+
 
 </style>
 {% endblock %}
@@ -325,7 +358,12 @@ html.dark-mode .chart-wrap {
           <button data-mode="all" onclick="setChartMode('all',this)">All Time</button>
         </div>
       </div>
-      <div class="chart-wrap">
+      <div class="chart-wrap" style="position: relative;">
+        <div class="chart-spinner" id="spendingChartSpinner">
+          <div class="spinner-dot"></div>
+          <div class="spinner-dot"></div>
+          <div class="spinner-dot"></div>
+        </div>
         <canvas id="spendingChart"></canvas>
       </div>
     </div>
@@ -420,7 +458,12 @@ html.dark-mode .chart-wrap {
         <button data-days="10" onclick="setDailyChartFilter(10, this)">Last 10 Days</button>
       </div>
     </div>
-    <div class="chart-wrap" style="height: 320px;">
+    <div class="chart-wrap" style="height: 320px; position: relative;">
+      <div class="chart-spinner" id="dailyChartSpinner">
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+      </div>
       <canvas id="dailyExpenseChart"></canvas>
     </div>
   </div>
@@ -649,56 +692,68 @@ async function fetchChartData(mode) {
 }
 
 async function buildChart(mode) {
-  const data    = await fetchChartData(mode);
-  const maxVal  = Math.max(...data);
-  const bgColors = data.map((v, i) =>
-    v === maxVal && maxVal > 0
-      ? MEMBER_COLORS_CSS[i % MEMBER_COLORS_CSS.length]
-      : MEMBER_COLORS_CSS[i % MEMBER_COLORS_CSS.length] + '88'
-  );
+  // Show spinner
+  const spinner = document.getElementById('spendingChartSpinner');
+  if (spinner) spinner.classList.add('loading');
 
-  const ctx = document.getElementById('spendingChart').getContext('2d');
+  try {
+    const data    = await fetchChartData(mode);
+    const maxVal  = Math.max(...data);
+    const bgColors = data.map((v, i) =>
+      v === maxVal && maxVal > 0
+        ? MEMBER_COLORS_CSS[i % MEMBER_COLORS_CSS.length]
+        : MEMBER_COLORS_CSS[i % MEMBER_COLORS_CSS.length] + '88'
+    );
 
-  if (chart) chart.destroy();
-  chart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: MEMBERS,
-      datasets: [{
-        data,
-        backgroundColor: bgColors,
-        borderColor: bgColors.map(c => c.slice(0,7)),
-        borderWidth: 0,
-        borderRadius: 8,
-        borderSkipped: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ₹${ctx.parsed.y.toLocaleString('en-IN')}`
-          }
-        }
+    const ctx = document.getElementById('spendingChart').getContext('2d');
+
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: MEMBERS,
+        datasets: [{
+          data,
+          backgroundColor: bgColors,
+          borderColor: bgColors.map(c => c.slice(0,7)),
+          borderWidth: 0,
+          borderRadius: 8,
+          borderSkipped: false,
+        }]
       },
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { font: { family: 'Syne', weight: '600', size: 13 } }
-        },
-        y: {
-          grid: { color: '#f0ede6' },
-          ticks: {
-            callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v),
-            font: { size: 11 }
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ₹${ctx.parsed.y.toLocaleString('en-IN')}`
+            }
           }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { font: { family: 'Syne', weight: '600', size: 13 } }
+          },
+          y: {
+            grid: { color: '#f0ede6' },
+            ticks: {
+              callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v),
+              font: { size: 11 }
+            }
         }
       }
     }
   });
+  
+  // Hide spinner
+  if (spinner) spinner.classList.remove('loading');
+} catch (e) {
+  console.error('Error building chart:', e);
+  if (spinner) spinner.classList.remove('loading');
+}
 }
 
 /* ── Daily Expenses Line Chart ─────────────────────────────── */
@@ -717,90 +772,102 @@ async function fetchDailyChartData() {
 }
 
 async function buildDailyChart(days = 5) {
-  const dailyData = await fetchDailyChartData();
-  
-  // Sort dates and prepare data for combined daily total
-  const sortedDates = Object.keys(dailyData).sort();
-  
-  // Get last N days (including previous month if needed)
-  const lastNDates = sortedDates.slice(-days);
-  
-  // Calculate combined daily totals
-  const combinedTotals = lastNDates.map(date => {
-    const dayExpenses = dailyData[date] || {};
-    return MEMBERS.reduce((sum, m) => sum + (dayExpenses[m] || 0), 0);
-  });
+  // Show spinner
+  const spinner = document.getElementById('dailyChartSpinner');
+  if (spinner) spinner.classList.add('loading');
 
-  const ctx = document.getElementById('dailyExpenseChart');
-  if (!ctx) return;
-  
-  if (dailyChart) dailyChart.destroy();
-  
-  // Detect dark mode
-  const isDarkMode = document.documentElement.classList.contains('dark-mode');
-  const textColor = isDarkMode ? '#f0f0f2' : '#8f8d85';
-  
-  // Create gradient for the line
-  const chartCtx = ctx.getContext('2d');
-  const gradient = chartCtx.createLinearGradient(0, 0, 0, 400);
-  gradient.addColorStop(0, 'rgba(92, 61, 244, 0.3)');
-  gradient.addColorStop(1, 'rgba(92, 61, 244, 0.01)');
-  
-  dailyChart = new Chart(chartCtx, {
-    type: 'line',
-    data: {
-      labels: lastNDates,
-      datasets: [{
-        label: 'Total',
-        data: combinedTotals,
-        borderColor: '#5c3df4',
-        backgroundColor: gradient,
-        borderWidth: 3,
-        fill: true,
-        tension: 0.4,
-        pointRadius: 5,
-        pointBackgroundColor: '#5c3df4',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-        pointHoverRadius: 7,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          display: false  // Hide legend to avoid the button issue
-        },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ₹${ctx.parsed.y.toLocaleString('en-IN')}`
-          },
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          padding: 12,
-          titleFont: { size: 13, weight: 'bold' },
-          bodyFont: { size: 12 }
-        }
+  try {
+    const dailyData = await fetchDailyChartData();
+    
+    // Sort dates and prepare data for combined daily total
+    const sortedDates = Object.keys(dailyData).sort();
+    
+    // Get last N days (including previous month if needed)
+    const lastNDates = sortedDates.slice(-days);
+    
+    // Calculate combined daily totals
+    const combinedTotals = lastNDates.map(date => {
+      const dayExpenses = dailyData[date] || {};
+      return MEMBERS.reduce((sum, m) => sum + (dayExpenses[m] || 0), 0);
+    });
+
+    const ctx = document.getElementById('dailyExpenseChart');
+    if (!ctx) return;
+    
+    if (dailyChart) dailyChart.destroy();
+    
+    // Detect dark mode
+    const isDarkMode = document.documentElement.classList.contains('dark-mode');
+    const textColor = isDarkMode ? '#f0f0f2' : '#8f8d85';
+    
+    // Create gradient for the line
+    const chartCtx = ctx.getContext('2d');
+    const gradient = chartCtx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(92, 61, 244, 0.3)');
+    gradient.addColorStop(1, 'rgba(92, 61, 244, 0.01)');
+    
+    dailyChart = new Chart(chartCtx, {
+      type: 'line',
+      data: {
+        labels: lastNDates,
+        datasets: [{
+          label: 'Total',
+          data: combinedTotals,
+          borderColor: '#5c3df4',
+          backgroundColor: gradient,
+          borderWidth: 3,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 5,
+          pointBackgroundColor: '#5c3df4',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointHoverRadius: 7,
+        }]
       },
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { 
-            font: { size: 12, weight: '500' },
-            color: textColor
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false  // Hide legend to avoid the button issue
+          },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ₹${ctx.parsed.y.toLocaleString('en-IN')}`
+            },
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            padding: 12,
+            titleFont: { size: 13, weight: 'bold' },
+            bodyFont: { size: 12 }
           }
         },
-        y: {
-          grid: { color: 'rgba(200,200,200,0.1)', drawBorder: false },
-          ticks: {
-            callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(1)+'k' : v),
-            font: { size: 11 },
-            color: textColor
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { 
+              font: { size: 12, weight: '500' },
+              color: textColor
+            }
+          },
+          y: {
+            grid: { color: 'rgba(200,200,200,0.1)', drawBorder: false },
+            ticks: {
+              callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(1)+'k' : v),
+              font: { size: 11 },
+              color: textColor
+            }
           }
         }
       }
-    }
-  });
+    });
+    
+    // Hide spinner
+    if (spinner) spinner.classList.remove('loading');
+  } catch (e) {
+    console.error('Error building daily chart:', e);
+    if (spinner) spinner.classList.remove('loading');
+  }
 }
 
 function setDailyChartFilter(days, btn) {
