@@ -270,20 +270,27 @@ html.dark-mode .chart-wrap {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 10;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+html.dark-mode .chart-spinner {
+  background: rgba(30, 30, 35, 0.95);
 }
 .chart-spinner.loading {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 12px;
 }
 .spinner-dot {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--accent);
-  margin: 0 6px;
-  animation: spin 1.4s infinite;
+  animation: spin-bounce 1.4s infinite;
 }
 .spinner-dot:nth-child(2) {
   animation-delay: 0.2s;
@@ -291,9 +298,9 @@ html.dark-mode .chart-wrap {
 .spinner-dot:nth-child(3) {
   animation-delay: 0.4s;
 }
-@keyframes spin {
-  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
-  30% { opacity: 1; transform: scale(1); }
+@keyframes spin-bounce {
+  0%, 60%, 100% { opacity: 0.5; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1.2); }
 }
 
 
@@ -692,9 +699,10 @@ async function fetchChartData(mode) {
 }
 
 async function buildChart(mode) {
-  // Show spinner
+  // Show spinner with minimum display time
   const spinner = document.getElementById('spendingChartSpinner');
   if (spinner) spinner.classList.add('loading');
+  const spinnerShowTime = Date.now();
 
   try {
     const data    = await fetchChartData(mode);
@@ -748,8 +756,12 @@ async function buildChart(mode) {
     }
   });
   
-  // Hide spinner
-  if (spinner) spinner.classList.remove('loading');
+  // Hide spinner after minimum display time
+  const elapsedTime = Date.now() - spinnerShowTime;
+  const minDisplayTime = 500; // Show spinner for at least 500ms
+  setTimeout(() => {
+    if (spinner) spinner.classList.remove('loading');
+  }, Math.max(0, minDisplayTime - elapsedTime));
 } catch (e) {
   console.error('Error building chart:', e);
   if (spinner) spinner.classList.remove('loading');
@@ -772,9 +784,10 @@ async function fetchDailyChartData() {
 }
 
 async function buildDailyChart(days = 5) {
-  // Show spinner
+  // Show spinner with minimum display time
   const spinner = document.getElementById('dailyChartSpinner');
   if (spinner) spinner.classList.add('loading');
+  const spinnerShowTime = Date.now();
 
   try {
     const dailyData = await fetchDailyChartData();
@@ -862,8 +875,12 @@ async function buildDailyChart(days = 5) {
       }
     });
     
-    // Hide spinner
-    if (spinner) spinner.classList.remove('loading');
+    // Hide spinner after minimum display time
+    const elapsedTime = Date.now() - spinnerShowTime;
+    const minDisplayTime = 500; // Show spinner for at least 500ms
+    setTimeout(() => {
+      if (spinner) spinner.classList.remove('loading');
+    }, Math.max(0, minDisplayTime - elapsedTime));
   } catch (e) {
     console.error('Error building daily chart:', e);
     if (spinner) spinner.classList.remove('loading');
