@@ -17,6 +17,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from . import calculations as calc
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # Palette for member column headers (one per member, cycles if > 7)
@@ -532,9 +534,10 @@ def get_monthly_totals(spreadsheet_id: str, members: list[str], year: int, month
 def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5) -> list[dict]:
     """
     Return the last *n* individual expense entries across all members,
-    newest first. Each entry: {date, member, amount}.
+    sorted by actual datetime (date + time), newest first.
+    Each entry: {date, member, amount, time}.
     
-    FIXED: Now properly tracks transaction creation order (not just date)
+    FIXED: Now sorts by actual datetime (date + time), not just time of day
     """
     data = _read_all(_get_service(), spreadsheet_id)
     if len(data) < 2:
@@ -548,7 +551,7 @@ def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5)
         if not row or not row[0]:
             continue
         
-        date = row[0]
+        date_str = row[0]
         
         for member in members:
             if member not in headers:
@@ -564,38 +567,47 @@ def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5)
             for part_idx, part in enumerate(parts):
                 try:
                     amount, time_str = _parse_amount_with_time(part)
-                    # Parse time (HH:MM:SS) to seconds for sorting
-                    time_seconds = 0
+                    
+                    # Create full datetime from date + time for proper sorting
+                    # Format: "2024-06-01 14:30:45"
                     if time_str:
+                        datetime_str = f"{date_str} {time_str}"
                         try:
-                            h, m, s = map(int, time_str.split(':'))
-                            time_seconds = h * 3600 + m * 60 + s
-                        except (ValueError, AttributeError):
-                            time_seconds = 0
+                            full_datetime = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            # Fallback to just date if time parsing fails
+                            full_datetime = datetime.strptime(date_str, "%Y-%m-%d")
+                    else:
+                        # No time, use just date
+                        full_datetime = datetime.strptime(date_str, "%Y-%m-%d")
                     
                     entries.append({
-                        "date": date,
+                        "date": date_str,
                         "member": member,
                         "amount": amount,
                         "time": time_str,
-                        "row_idx": row_idx,
-                        "part_idx": part_idx,
-                        "time_seconds": time_seconds
+                        "datetime": full_datetime,  # Full datetime for sorting
+                        "part_idx": part_idx
                     })
                 except ValueError:
                     pass
 
-    # Sort by: time_seconds (HH:MM:SS), then row_idx (insertion order), then part position
-    # This ensures transactions are shown by the ACTUAL time they were added (most recent first)
-    entries.sort(key=lambda x: (x["time_seconds"], x["row_idx"], x["part_idx"]), reverse=True)
+    # Sort by: datetime (newest first), then part_idx (insertion order within same datetime)
+    # This ensures transactions show by actual date+time they were added (most recent first)
+    entries.sort(key=lambda x: (x["datetime"], x["part_idx"]), reverse=True)
     
-    # Remove sorting keys before returning
+    # Build result with last n transactions
     result = []
     for e in entries[:n]:
-        item = {"date": e["date"], "member": e["member"], "amount": e["amount"]}
+        item = {
+            "date": e["date"],
+            "member": e["member"],
+            "amount": e["amount"]
+        }
         if e["time"]:
             item["time"] = e["time"]
         result.append(item)
+    
     return result
 
 
@@ -669,11 +681,9 @@ def get_monthly_summary(spreadsheet_id: str, members: list[str], year: int, mont
     """
     monthly_totals = get_monthly_totals(spreadsheet_id, members, year, month)
     
-    from datetime import datetime
     month_name = datetime(year, month, 1).strftime("%B")
     
     # Calculate settlement for this month
-    from utils import calculations as calc
     settlement = calc.settlement(monthly_totals, members)
     
     return {
@@ -1009,7 +1019,7 @@ def get_month_transactions(spreadsheet_id: str, members: list[str], year: int, m
                     continue
     
     # Calculate settlement
-    settlement = _calculate_settlement(members, member_totals)
+    settlement = calc.settlement(member_totals, members)
     
     return {
         "month": datetime(year, month, 1).strftime("%B"),
