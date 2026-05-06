@@ -11,17 +11,13 @@ Sheet layout expected:
 import os
 import json
 import base64
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from . import calculations as calc
-from . import cache
-
-# India Standard Time (IST) timezone: UTC+5:30
-IST = timezone(timedelta(hours=5, minutes=30))
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -246,21 +242,17 @@ def sync_sheet_members(spreadsheet_id: str, members: list[str]) -> None:
     service.spreadsheets().batchUpdate(
         spreadsheet_id=spreadsheet_id, body={"requests": requests}
     ).execute()
-    
-    # Invalidate cache after sync
-    cache.invalidate_sheet_cache(spreadsheet_id)
 
 
 # ─── Core write ───────────────────────────────────────────────────────────────
 
 def _format_amount_with_time(amount: float) -> str:
     """
-    Format amount with current time (India Standard Time).
+    Format amount with current time.
     Format: amount(HH:MM:SS)
     Example: 123(14:30:45)
-    Uses IST (UTC+5:30) for correct India timezone.
     """
-    now = datetime.now(IST)
+    now = datetime.now()
     time_str = now.strftime("%H:%M:%S")
     amount_str = str(int(amount)) if amount == int(amount) else str(amount)
     return f"{amount_str}({time_str})"
@@ -360,9 +352,6 @@ def add_expense(
         valueInputOption="RAW",
         body={"values": all_data},
     ).execute()
-    
-    # Invalidate cache after write
-    cache.invalidate_sheet_cache(spreadsheet_id)
 
 
 def add_member_column(spreadsheet_id: str, member_name: str, col_idx: int) -> None:
@@ -426,9 +415,6 @@ def add_member_column(spreadsheet_id: str, member_name: str, col_idx: int) -> No
             ]
         },
     ).execute()
-    
-    # Invalidate cache after adding column
-    cache.invalidate_sheet_cache(spreadsheet_id)
 
 
 def expense_exists(
@@ -474,29 +460,13 @@ def expense_exists(
 # ─── Reads ────────────────────────────────────────────────────────────────────
 
 def _read_all(service, spreadsheet_id: str) -> list[list[str]]:
-    """
-    Read all data from Sheet1, using cache to reduce API calls.
-    Cache TTL: 60 seconds (configurable in cache.py)
-    """
-    cache_key = f"sheet_{spreadsheet_id}_all_data"
-    
-    # Check cache first
-    cached_data = cache.get_cache_value(cache_key)
-    if cached_data is not None:
-        return cached_data
-    
-    # Cache miss - read from API
     result = (
         service.spreadsheets()
         .values()
         .get(spreadsheetId=spreadsheet_id, range="Sheet1")
         .execute()
     )
-    data = result.get("values", [])
-    
-    # Store in cache for next 60 seconds
-    cache.set_cache_value(cache_key, data)
-    return data
+    return result.get("values", [])
 
 
 def get_all_data(spreadsheet_id: str) -> list[list[str]]:
