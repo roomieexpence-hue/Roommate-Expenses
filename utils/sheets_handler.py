@@ -11,7 +11,7 @@ Sheet layout expected:
 import os
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -19,6 +19,9 @@ from googleapiclient.errors import HttpError
 
 from . import calculations as calc
 from . import cache
+
+# India Standard Time (IST) timezone: UTC+5:30
+IST = timezone(timedelta(hours=5, minutes=30))
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -252,11 +255,12 @@ def sync_sheet_members(spreadsheet_id: str, members: list[str]) -> None:
 
 def _format_amount_with_time(amount: float) -> str:
     """
-    Format amount with current time.
+    Format amount with current time (India Standard Time).
     Format: amount(HH:MM:SS)
     Example: 123(14:30:45)
+    Uses IST (UTC+5:30) for correct India timezone.
     """
-    now = datetime.now()
+    now = datetime.now(IST)
     time_str = now.strftime("%H:%M:%S")
     amount_str = str(int(amount)) if amount == int(amount) else str(amount)
     return f"{amount_str}({time_str})"
