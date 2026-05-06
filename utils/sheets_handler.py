@@ -439,18 +439,22 @@ def expense_exists(
         if col_idx == -1:
             return False
         
-        amount_str = str(int(amount)) if amount == int(amount) else str(amount)
-        
         # Find the row for this date
         for row in all_data[1:]:
             if row and len(row) > 0 and row[0] == date_str:
                 if len(row) > col_idx:
                     cell_content = row[col_idx].strip()
-                    # Check if the exact amount exists in the cell
-                    # Cell might contain "100" or "100+50" etc
-                    amounts = cell_content.split('+')
-                    if amount_str in amounts:
-                        return True
+                    if not cell_content:
+                        break
+                    
+                    # Cell might contain "100" or "100(16:45:30)" or "100(16:45:30)+50(17:20:15)"
+                    # Split by '+' to get individual transaction entries
+                    entries = cell_content.split('+')
+                    for entry in entries:
+                        parsed_amount, _ = _parse_amount_with_time(entry.strip())
+                        # Check if this amount matches (within floating point tolerance)
+                        if abs(parsed_amount - amount) < 0.01:
+                            return True
                 break
         
         return False
