@@ -11,7 +11,7 @@ Sheet layout expected:
 import os
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -248,30 +248,31 @@ def sync_sheet_members(spreadsheet_id: str, members: list[str]) -> None:
 
 def _format_amount_with_time(amount: float) -> str:
     """
-    Format amount with current time.
-    Format: amount(HH:MM:SS)
-    Example: 123(14:30:45)
+    Format amount with current time (Indian Standard Time - IST/UTC+5:30).
+    Format: amount@HH:MM:SS
+    Example: 123@14:30:45
     """
-    now = datetime.now()
+    # Indian Standard Time: UTC+5:30
+    ist = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(ist)
     time_str = now.strftime("%H:%M:%S")
     amount_str = str(int(amount)) if amount == int(amount) else str(amount)
-    return f"{amount_str}({time_str})"
+    return f"{amount_str}@{time_str}"
 
 
 def _parse_amount_with_time(cell_value: str) -> tuple[float, str]:
     """
-    Parse amount(HH:MM:SS) format.
+    Parse amount@HH:MM:SS format.
     Returns: (amount_float, time_string)
-    Example: "123(14:30:45)" → (123.0, "14:30:45")
+    Example: "123@14:30:45" → (123.0, "14:30:45")
     Falls back to just amount if no time format found.
     """
     cell_value = str(cell_value).strip()
     
-    # Try to parse new format: amount(HH:MM:SS)
-    if "(" in cell_value and ")" in cell_value:
+    # Try to parse new format: amount@HH:MM:SS
+    if "@" in cell_value:
         try:
-            amount_part, time_part = cell_value.split("(", 1)
-            time_str = time_part.rstrip(")")
+            amount_part, time_str = cell_value.split("@", 1)
             amount = float(amount_part.strip())
             return amount, time_str
         except (ValueError, IndexError):
@@ -281,7 +282,7 @@ def _parse_amount_with_time(cell_value: str) -> tuple[float, str]:
             except ValueError:
                 return 0.0, ""
     else:
-        # Old format (just amount)
+        # Old format (just amount, no time)
         try:
             return float(cell_value), ""
         except ValueError:
@@ -301,7 +302,7 @@ def add_expense(
     • Syncs sheet members with current code members first (recreates deleted columns)
     • If the date row exists, append amount with '+'.
     • If not, create a new row.
-    • Stores in format: amount(HH:MM:SS) e.g., 123(14:30:45)
+    • Stores in format: amount@HH:MM:SS e.g., 123@14:30:45
     """
     service = _get_service()
     
@@ -477,7 +478,7 @@ def get_all_data(spreadsheet_id: str) -> list[list[str]]:
 def get_totals(spreadsheet_id: str, members: list[str]) -> dict:
     """
     Return {member: total_float, ..., 'overall': float}
-    Parses cells like '140+64+34' or '140(14:30:45)+64(15:45:20)+34(16:20:10)'.
+    Parses cells like '140+64+34' or '140@14:30:45+64@15:45:20+34@16:20:10'.
     """
     data = _read_all(_get_service(), spreadsheet_id)
     if not data:
@@ -613,14 +614,14 @@ def get_recent_transactions(spreadsheet_id: str, members: list[str], n: int = 5)
 def get_today_transactions(spreadsheet_id: str, members: list[str], today_str: str = None, n: int = 10) -> list[dict]:
     """
     Get transactions for today's date only, up to n entries.
-    today_str format: 'YYYY-MM-DD'. If None, uses current date.
+    today_str format: 'YYYY-MM-DD'. If None, uses current date (IST).
     Returns list of dicts with: date, member, amount, time
     Sorted by time (newest first).
     """
-    from datetime import date as date_class
-    
     if today_str is None:
-        today_str = date_class.today().isoformat()
+        # Use IST (Indian Standard Time)
+        ist = timezone(timedelta(hours=5, minutes=30))
+        today_str = datetime.now(ist).date().isoformat()
     
     data = _read_all(_get_service(), spreadsheet_id)
     if len(data) < 2:
@@ -1001,13 +1002,12 @@ def get_month_transactions(spreadsheet_id: str, members: list[str], year: int, m
             col_idx = member_idx + 1
             if col_idx < len(row) and row[col_idx]:
                 try:
-                    # Parse amount (can have multiple parts like "100(14:35:54)+50(15:20:10)")
+                    # Parse amount (can have multiple parts like "100@14:35:54+50@15:20:10")
                     parts = row[col_idx].split('+')
                     for part in parts:
-                        # Extract just the number part
-                        amount_match = part.split('(')[0]
-                        if amount_match:
-                            amount = float(amount_match)
+                        # Use _parse_amount_with_time to extract amount properly
+                        amount, _ = _parse_amount_with_time(part)
+                        if amount > 0:
                             transactions.append({
                                 "date": row_date.strftime("%Y-%m-%d"),
                                 "member": member,
