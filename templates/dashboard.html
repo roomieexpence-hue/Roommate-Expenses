@@ -319,7 +319,7 @@ html.dark-mode .chart-spinner {
     </div>
     <div class="page-header-total">
       <div class="total-label">Overall Expense</div>
-      <div class="total-value">₹{{ '{:,.0f}'.format(totals.overall) }}</div>
+      <div class="total-value">₹{{ '{:,.2f}'.format(totals.overall) }}</div>
     </div>
   </div>
 
@@ -344,7 +344,7 @@ html.dark-mode .chart-spinner {
         <span class="mdot" style="background:{{ color }}"></span>{{ member }}
       </div>
       <div class="value" style="color:{{ color }}">
-        ₹{{ '{:,.0f}'.format(totals.get(member, 0)) }}
+        ₹{{ '{:,.2f}'.format(totals.get(member, 0)) }}
       </div>
       <div class="sub">all-time total</div>
       <div class="spending-share-label" style="color:{{ color }}">Spending Share: {{ '{:.1f}'.format(pct) }}%</div>
@@ -388,7 +388,7 @@ html.dark-mode .chart-spinner {
           <span class="settle-arrow"><i class="fas fa-arrow-right"></i></span>
           <i class="fas fa-user-circle" style="color:{{ member_colors[members.index(t.receiver) % member_colors|length] }}"></i>
           <span>{{ t.receiver }}</span>
-          <span class="settle-amt">₹{{ '{:,.0f}'.format(t.amount) }}</span>
+          <span class="settle-amt">₹{{ '{:,.2f}'.format(t.amount) }}</span>
         </div>
         {% endfor %}
       {% else %}
@@ -422,7 +422,7 @@ html.dark-mode .chart-spinner {
               {% if tx.time %}<span class="tx-time">({{ tx.time }})</span>{% endif %}
             </div>
           </div>
-          <div class="tx-amt" style="color:{{ color }}">₹{{ '{:,.0f}'.format(tx.amount) }}</div>
+          <div class="tx-amt" style="color:{{ color }}">₹{{ '{:,.2f}'.format(tx.amount) }}</div>
         </div>
         {% endfor %}
       {% else %}
@@ -499,7 +499,7 @@ html.dark-mode .chart-spinner {
               {{ month_data.month }}/{{ month_data.year }}
             </td>
             <td style="text-align: right; padding: .75rem; color: var(--ink); font-weight: 600;">
-              ₹{{ '{:,.0f}'.format(month_data.total_expense) }}
+              ₹{{ '{:,.2f}'.format(month_data.total_expense) }}
             </td>
           </tr>
           {% endfor %}
